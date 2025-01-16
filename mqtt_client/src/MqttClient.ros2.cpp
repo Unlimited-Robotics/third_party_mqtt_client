@@ -1294,11 +1294,10 @@ void MqttClient::connected(const std::string& cause) {
 
 
 void MqttClient::connection_lost(const std::string& cause) {
-
-  (void) cause; // Avoid compiler warning for unused parameter.
-
-  RCLCPP_ERROR(get_logger(),
-               "Connection to broker lost, will try to reconnect...");
+  RCLCPP_ERROR_STREAM(get_logger(),
+    "Connection to broker lost, will try to reconnect..." 
+    << cause.c_str()
+  );
   is_connected_ = false;
   connect();
 }
