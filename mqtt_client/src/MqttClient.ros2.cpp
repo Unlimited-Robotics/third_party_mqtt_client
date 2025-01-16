@@ -374,8 +374,6 @@ void MqttClient::loadParameters() {
   client_config_.buffer.enabled = !client_config_.id.empty();
   if (client_config_.buffer.enabled) {
     loadParameter("client.buffer.size", client_config_.buffer.size, 1);
-    RCLCPP_WARN_STREAM(get_logger(),
-                       "Client buffer size is set to " << client_config_.buffer.size);
     loadParameter("client.buffer.directory", client_buffer_directory, "buffer");
   } else {
     RCLCPP_WARN(get_logger(),
@@ -900,12 +898,19 @@ void MqttClient::setupClient() {
                                       broker_config_.port);
   try {
     if (client_config_.buffer.enabled) {
-      client_ = std::shared_ptr<mqtt::async_client>(new mqtt::async_client(
-        uri, client_config_.id, client_config_.buffer.size,
-        client_config_.buffer.directory));
+      client_ = std::shared_ptr<mqtt::async_client>(
+        new mqtt::async_client(
+          uri, 
+          client_config_.id, 
+          client_config_.buffer.size,
+          client_config_.buffer.directory
+        ));
     } else {
       client_ = std::shared_ptr<mqtt::async_client>(
-        new mqtt::async_client(uri, client_config_.id));
+        new mqtt::async_client(
+          uri, 
+          client_config_.id
+        ));
     }
   } catch (const mqtt::exception& e) {
     RCLCPP_ERROR(get_logger(), "Client could not be initialized: %s", e.what());
