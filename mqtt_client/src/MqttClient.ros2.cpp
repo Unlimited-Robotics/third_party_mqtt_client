@@ -373,7 +373,9 @@ void MqttClient::loadParameters() {
   loadParameter("client.id", client_config_.id, "");
   client_config_.buffer.enabled = !client_config_.id.empty();
   if (client_config_.buffer.enabled) {
-    loadParameter("client.buffer.size", client_config_.buffer.size, 0);
+    loadParameter("client.buffer.size", client_config_.buffer.size, 1);
+    RCLCPP_WARN_STREAM(get_logger(),
+                       "Client buffer size is set to " << client_config_.buffer.size);
     loadParameter("client.buffer.directory", client_buffer_directory, "buffer");
   } else {
     RCLCPP_WARN(get_logger(),
