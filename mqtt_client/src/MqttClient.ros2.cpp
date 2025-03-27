@@ -426,7 +426,10 @@ void MqttClient::loadParameters() {
   if (heartbeat_config_.enabled){
     RCLCPP_WARN_STREAM(get_logger(), "Heartbeat is enabled.");
     Mqtt2RosInterface& mqtt2ros = mqtt2ros_[heartbeat_config_.mqtt_topic];
-    heartbeat_config_.ros_topic = get_namespace() + heartbeat_config_.ros_topic;
+    heartbeat_config_.ros_topic = get_namespace();
+    if (!heartbeat_config_.ros_topic.empty() && heartbeat_config_.ros_topic.back() != '/')
+        heartbeat_config_.ros_topic += '/';
+    heartbeat_config_.ros_topic += "heartbeat";
     mqtt2ros.ros.topic = heartbeat_config_.ros_topic;
     mqtt2ros.ros.msg_type = "std_msgs/msg/String";
     mqtt2ros.fixed_type = true;
