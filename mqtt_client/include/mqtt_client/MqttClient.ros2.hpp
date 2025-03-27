@@ -43,6 +43,7 @@ SOFTWARE.
 #include <rclcpp/serialization.hpp>
 #include <rclcpp/qos.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <std_msgs/msg/string.hpp>
 
 
 /**
@@ -216,6 +217,16 @@ class MqttClient : public rclcpp::Node,
   void setupSubscriptions();
 
   /**
+   * @brief Callback for updating last hearbeat.
+   */
+  void heartbeatCallback(const std_msgs::msg::String & msg);
+
+  /**
+   * @brief Callback for checking hearbeat.
+   */
+  void checkHeartbeat();
+
+  /**
    * @brief Setup any publishers that we can
    */
   void setupPublishers();
@@ -229,7 +240,7 @@ class MqttClient : public rclcpp::Node,
   /**
    * @brief Connects to the broker using the member client and options.
    */
-  void connect();
+  void connect(bool exit_on_failure = true);
 
   /**
    * @brief Publishes a generic serialized ROS message to the MQTT broker.
@@ -428,6 +439,27 @@ class MqttClient : public rclcpp::Node,
   };
 
   /**
+   * @brief Struct containing parameters for heartbeat messages.
+   */
+  struct HeartbeatConfig {
+    bool enabled;       ///< whether heartbeat is enabled
+    std::string mqtt_topic;  ///< heartbeat topic
+    std::string ros_topic = "heartbeat";  ///< heartbeat topic
+    int qos;            ///< heartbeat QoS value
+    double interval;    ///< heartbeat interval
+    double timeout;     ///< heartbeat timeout
+  };
+
+  /**
+   * @brief Struct containing variables related to heartbeat messages.
+   */
+  struct LastHeartbeat {
+    rclcpp::Time stamp{0, 0, RCL_SYSTEM_TIME};  ///< last heartbeat timestamp
+    bool received = false;  ///< whether heartbeat was received
+    bool timeout_ = false;  ///< whether heartbeat timeout was reached
+  };
+
+  /**
    * @brief Struct containing variables related to a ROS2MQTT connection.
    */
   struct Ros2MqttInterface {
@@ -502,6 +534,16 @@ class MqttClient : public rclcpp::Node,
   rclcpp::TimerBase::SharedPtr check_subscriptions_timer_;
 
   /**
+   * @brief Subscription to heartbeat topic
+   */
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr heartbeat_subscriber_;
+
+  /**
+   * @brief Timer to repeatedly check active ROS topics for topics to subscribe
+   */
+  rclcpp::TimerBase::SharedPtr check_heartbeat_timer_;
+
+  /**
    * @brief ROS Service server for providing connection status
    */
   rclcpp::Service<mqtt_client_interfaces::srv::IsConnected>::SharedPtr
@@ -533,6 +575,21 @@ class MqttClient : public rclcpp::Node,
    * @brief Client parameters
    */
   ClientConfig client_config_;
+
+  /**
+   * @brief Heartbeat parameters
+   */
+  HeartbeatConfig heartbeat_config_;
+
+  /**
+   * @brief Last heartbeat
+   */
+  LastHeartbeat last_heartbeat_;
+
+  /**
+   * @brief Timer to check for heartbeat timeout
+   */
+  rclcpp::Clock steady_clock_{RCL_SYSTEM_TIME};  
 
   /**
    * @brief MQTT client variable

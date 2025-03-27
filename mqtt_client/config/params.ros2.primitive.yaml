@@ -1,18 +1,41 @@
-/**/*:
+/**/mqtt_client:
   ros__parameters:
     broker:
-      host: localhost
-      port: 1883
+      host: a1aovxuxlszpwl-ats.iot.us-east-1.amazonaws.com
+      port: 8883
+      tls:
+        enabled: true
+        ca_certificate: /greengrass/v2/rootCA.pem
+    client:
+      id: "test/raya_fleet_manager"
+      clean_session: false
+      tls:
+        enabled: true
+        certificate: /greengrass/v2/thingCert.crt
+        key: /greengrass/v2/privKey.key
+        version: 3
+        verify: false
+      buffer:
+        size: 100000
+      keep_alive_interval: 60.0
+    heartbeat:
+      enabled: true
+      topic: heartbeat
+      qos: 0
+      interval: 10.0
+      timeout: 60.0
     bridge:
       ros2mqtt:
         ros_topics:
           - /ping/primitive
         /ping/primitive:
           mqtt_topic: pingpong/primitive
+          qos: 1
           primitive: true
       mqtt2ros:
         mqtt_topics:
           - pingpong/primitive
         pingpong/primitive:
           ros_topic: /pong/primitive
+          qos: 1
           primitive: true

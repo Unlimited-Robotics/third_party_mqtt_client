@@ -5,6 +5,7 @@
 # Prerequisites
 *.d
 
+/buffer
 # Compiled Object files
 *.slo
 *.lo

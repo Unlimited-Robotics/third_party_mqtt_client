@@ -310,6 +310,17 @@ void MqttClient::loadParameters() {
   param_desc.description = "client private key password";
   declare_parameter("client.tls.password", rclcpp::ParameterType::PARAMETER_STRING, param_desc);
 
+  param_desc.description = "Enables a heartbeat topic to be published to the broker. This topic is used to check if the broker is still alive.";
+  declare_parameter("heartbeat.enabled", rclcpp::ParameterType::PARAMETER_BOOL, param_desc);
+  param_desc.description = "The topic on which the heartbeat is published.";
+  declare_parameter("heartbeat.topic", rclcpp::ParameterType::PARAMETER_STRING, param_desc);
+  param_desc.description = "The QoS value of the heartbeat topic.";
+  declare_parameter("heartbeat.qos", rclcpp::ParameterType::PARAMETER_INTEGER, param_desc);
+  param_desc.description = "The interval in seconds at which the heartbeat is published.";
+  declare_parameter("heartbeat.interval", rclcpp::ParameterType::PARAMETER_DOUBLE, param_desc);
+  param_desc.description = "The timeout in seconds after which the heartbeat is considered lost.";
+  declare_parameter("heartbeat.timeout", rclcpp::ParameterType::PARAMETER_DOUBLE, param_desc);
+
   param_desc.description = "The list of topics to bridge from ROS to MQTT";
   const auto ros2mqtt_ros_topics = declare_parameter<std::vector<std::string>>("bridge.ros2mqtt.ros_topics", std::vector<std::string>(), param_desc);
   for (const auto& ros_topic : ros2mqtt_ros_topics)
@@ -405,6 +416,23 @@ void MqttClient::loadParameters() {
   client_config_.buffer.directory = resolvePath(client_buffer_directory);
   client_config_.tls.certificate = resolvePath(client_tls_certificate);
   client_config_.tls.key = resolvePath(client_tls_key);
+
+  // load hearbeat options
+  loadParameter("heartbeat.enabled", heartbeat_config_.enabled, false);
+  loadParameter("heartbeat.topic", heartbeat_config_.mqtt_topic, "heartbeat");
+  loadParameter("heartbeat.qos", heartbeat_config_.qos, 0);
+  loadParameter("heartbeat.interval", heartbeat_config_.interval, 10.0);
+  loadParameter("heartbeat.timeout", heartbeat_config_.timeout, 60.0);
+  if (heartbeat_config_.enabled){
+    RCLCPP_WARN_STREAM(get_logger(), "Heartbeat is enabled.");
+    Mqtt2RosInterface& mqtt2ros = mqtt2ros_[heartbeat_config_.mqtt_topic];
+    heartbeat_config_.ros_topic = get_namespace() + heartbeat_config_.ros_topic;
+    mqtt2ros.ros.topic = heartbeat_config_.ros_topic;
+    mqtt2ros.ros.msg_type = "std_msgs/msg/String";
+    mqtt2ros.fixed_type = true;
+    mqtt2ros.primitive = true;
+    mqtt2ros.mqtt.qos = heartbeat_config_.qos;
+  }
 
   // parse bridge parameters
 
@@ -676,6 +704,17 @@ void MqttClient::setup() {
                       std::bind(&MqttClient::setupSubscriptions, this));
 
   setupPublishers ();
+
+  // setup heartbeat subscriber if enabled
+  if (heartbeat_config_.enabled) {
+    heartbeat_subscriber_ = create_subscription<std_msgs::msg::String>(
+      heartbeat_config_.ros_topic, 10,
+      std::bind(&MqttClient::heartbeatCallback, this, std::placeholders::_1));
+
+    check_heartbeat_timer_ =
+      create_wall_timer(std::chrono::duration<double>(heartbeat_config_.timeout),
+                        std::bind(&MqttClient::checkHeartbeat, this));
+  }
 }
 
 std::optional<rclcpp::QoS> MqttClient::getCompatibleQoS (const std::string &ros_topic, const rclcpp::TopicEndpointInfo &tei,
@@ -828,6 +867,40 @@ void MqttClient::setupSubscriptions() {
   }
 }
 
+void MqttClient::heartbeatCallback(const std_msgs::msg::String & msg) {
+  RCLCPP_DEBUG(get_logger(), "Received heartbeat message: %s", msg.data.c_str());
+  last_heartbeat_.stamp = steady_clock_.now();
+  last_heartbeat_.received = true;
+}
+
+void MqttClient::checkHeartbeat(){
+  if (!last_heartbeat_.received) {
+    last_heartbeat_.timeout_ = true;
+  }
+
+  if (last_heartbeat_.stamp + rclcpp::Duration::from_seconds(heartbeat_config_.timeout) < steady_clock_.now()) {
+    last_heartbeat_.timeout_ = true;
+  }
+
+  if (last_heartbeat_.timeout_) {
+    RCLCPP_ERROR(get_logger(), "Heartbeat timeout on topic '%s'",
+                 heartbeat_config_.mqtt_topic.c_str());
+    last_heartbeat_.timeout_ = false;
+    if (client_->is_connected())
+      client_->disconnect();
+    
+    RCLCPP_WARN_STREAM(get_logger(), "Reconnecting ...");
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    is_connected_ = false;
+    connect(false);
+  }
+  else{
+    // RCLCPP_WARN(get_logger(), "Heartbeat is still ok");
+    ;
+  }
+  last_heartbeat_.received = false;
+}
+
 void MqttClient::setupPublishers() {
 
   for (auto& [mqtt_topic, mqtt2ros] : mqtt2ros_) {
@@ -922,7 +995,7 @@ void MqttClient::setupClient() {
 }
 
 
-void MqttClient::connect() {
+void MqttClient::connect(bool exit_on_failure) {
 
   std::string as_client =
     client_config_.id.empty()
@@ -935,7 +1008,9 @@ void MqttClient::connect() {
     client_->connect(connect_options_, nullptr, *this);
   } catch (const mqtt::exception& e) {
     RCLCPP_ERROR(get_logger(), "Connection to broker failed: %s", e.what());
-    exit(EXIT_FAILURE);
+    if (exit_on_failure){
+      exit(EXIT_FAILURE);
+    }
   }
 }
 
@@ -993,7 +1068,7 @@ void MqttClient::ros2mqtt(
                            msg_type_buffer.size(), ros2mqtt.mqtt.qos, true);
       client_->publish(mqtt_msg);
     } catch (const mqtt::exception& e) {
-      RCLCPP_WARN(
+      RCLCPP_WARN_ONCE(
         get_logger(),
         "Publishing ROS message type information to MQTT topic '%s' failed: %s",
         mqtt_topic.c_str(), e.what());
@@ -1051,7 +1126,7 @@ void MqttClient::ros2mqtt(
       ros2mqtt.mqtt.qos, ros2mqtt.mqtt.retained);
     client_->publish(mqtt_msg);
   } catch (const mqtt::exception& e) {
-    RCLCPP_WARN(
+    RCLCPP_WARN_ONCE(
       get_logger(),
       "Publishing ROS message type information to MQTT topic '%s' failed: %s",
       mqtt_topic.c_str(), e.what());
@@ -1288,13 +1363,13 @@ void MqttClient::connected(const std::string& cause) {
     if (!mqtt2ros.primitive) {
       std::string const mqtt_topic_to_subscribe = kRosMsgTypeMqttTopicPrefix + mqtt_topic;
       client_->subscribe(mqtt_topic_to_subscribe, mqtt2ros.mqtt.qos);
-      RCLCPP_INFO(get_logger(), "Subscribed MQTT topic '%s'", mqtt_topic_to_subscribe.c_str());
+      RCLCPP_INFO_ONCE(get_logger(), "Subscribed MQTT topic '%s'", mqtt_topic_to_subscribe.c_str());
     }
     // If not primitive and not fixed, we need the message type before we can public. In that case
     // wait for the type to come in before subscribing to the data topic
     if (mqtt2ros.primitive || mqtt2ros.fixed_type) {
       client_->subscribe(mqtt_topic, mqtt2ros.mqtt.qos);
-      RCLCPP_INFO(get_logger(), "Subscribed MQTT topic '%s'", mqtt_topic.c_str());
+      RCLCPP_INFO_ONCE(get_logger(), "Subscribed MQTT topic '%s'", mqtt_topic.c_str());
     }
   }
 }
@@ -1386,7 +1461,7 @@ void MqttClient::newMqtt2RosBridge(
   if (!mqtt2ros.primitive)
     mqtt_topic_to_subscribe = kRosMsgTypeMqttTopicPrefix + request->mqtt_topic;
   client_->subscribe(mqtt_topic_to_subscribe, mqtt2ros.mqtt.qos);
-  RCLCPP_INFO(get_logger(), "Subscribed MQTT topic '%s'", mqtt_topic_to_subscribe.c_str());
+  RCLCPP_INFO_ONCE(get_logger(), "Subscribed MQTT topic '%s'", mqtt_topic_to_subscribe.c_str());
 
   response->success = true;
 }
@@ -1487,7 +1562,11 @@ void MqttClient::message_arrived(mqtt::const_message_ptr mqtt_msg) {
     // publish ROS message, if publisher initialized
     if (!mqtt2ros_[mqtt_topic].ros.msg_type.empty()) {
       mqtt2ros(mqtt_msg, arrival_stamp);
-    } else {
+    } 
+    else if( heartbeat_config_.enabled &&  (get_namespace() + mqtt_topic) == heartbeat_config_.ros_topic) {
+      ;
+    }
+    else {
       RCLCPP_WARN(
         get_logger(),
         "ROS publisher for data from MQTT topic '%s' is not yet initialized: "
