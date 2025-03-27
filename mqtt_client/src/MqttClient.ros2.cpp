@@ -714,6 +714,8 @@ void MqttClient::setup() {
     check_heartbeat_timer_ =
       create_wall_timer(std::chrono::duration<double>(heartbeat_config_.timeout),
                         std::bind(&MqttClient::checkHeartbeat, this));
+    
+    RCLCPP_WARN(get_logger(), "Heartbeat topic is %s", heartbeat_config_.ros_topic.c_str());
   }
 }
 
