@@ -221,6 +221,8 @@ roslaunch mqtt_client standalone.launch params_file:="</PATH/TO/PARAMS.YAML>"
 
 # ROS 2
 ros2 launch mqtt_client standalone.launch.ros2.xml params_file:="</PATH/TO/PARAMS.YAML>"
+# ROS 2 (when developing on a local ws)
+ros2 launch mqtt_client standalone.launch.ros2.xml params_file:=mqtt_client/config/params.ros2.primitive.yaml
 ```
 
 In order to exploit the benefits of *mqtt_client* being a ROS nodelet / ROS 2 component, load the nodelet / component to your own nodelet manager / component container.
@@ -265,6 +267,12 @@ client:
     version:              # TLS version (https://github.com/eclipse/paho.mqtt.cpp/blob/master/src/mqtt/ssl_options.h#L305)
     verify:               # verify the client should conduct post-connect checks.
     alpn_protos:          # list of ALPN protocols (https://www.openssl.org/docs/man1.1.1/man3/SSL_CTX_set_alpn_protos.html)
+heartbeat:
+    enabled:             # [false] whether to enable heartbeat messages
+    topic:              # [heartbeat] mqtt topic used for heartbeat messages (no heartbeat, if not specified), the ros topic for this is ros2_namespace/heartbeat
+    qos:                # [0] QoS value for heartbeat messages
+    interval:            # [10.0] heartbeat interval in seconds currently not in use
+    timeout:             # [60.0] heartbeat timeout in seconds
 ```
 
 #### Bridge Parameters
